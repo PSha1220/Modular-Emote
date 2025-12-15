@@ -1,6 +1,6 @@
 {
   "name": "com.psha.modular.emote",
-  "displayName": "ModularEmote",
+  "displayName": "Psha Modular Emote",
   "version": "1.0.1",
   "unity": "2022.3",
   "description": "NDMF-based, non-destructive VRChat emote installer (menu + Action/FX patch).",
