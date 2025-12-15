@@ -1,3 +1,5 @@
 /*/
+!com.vrchat.core.*
+!com.vrchat.core.*/
 !com.psha.modular.emote/
 !com.psha.modular.emote/**
