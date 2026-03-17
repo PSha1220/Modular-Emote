@@ -47,110 +47,132 @@ public static class PshaVRCEmoteInstallerPass
 
 
     public static void Execute(BuildContext context)
-{
-    Execute_AnimatorOnly(context);
-    Execute_MenuOnly(context);
-}
-
-private static List<PshaVRCEmoteInstaller> CollectFinalInstallers(GameObject avatarRoot)
-{
-    var managers = avatarRoot.GetComponentsInChildren<PshaVRCEmoteInstaller>(true);
-    if (managers == null || managers.Length == 0) return null;
-
-    var list = new List<PshaVRCEmoteInstaller>(managers);
-    list.RemoveAll(m => m == null || !m.gameObject.activeInHierarchy);
-    if (list.Count == 0) return null;
-
-    list.Sort((a, b) => CompareHierarchyOrder(a.transform, b.transform));
-
-    var finalList = FilterFinalSlotWinnersInHierarchyOrder(list);
-    if (finalList.Count == 0) return null;
-
-    return finalList;
-}
-
-public static void Execute_AnimatorOnly(BuildContext context)
-{
-    var avatarRoot = context.AvatarRootObject;
-    if (avatarRoot == null) return;
-
-    var finalList = CollectFinalInstallers(avatarRoot);
-    if (finalList == null) return;
-
-    SetupActionTemplates_BC(context, finalList);
-    SetupFxTemplates_BC(context, finalList);
-}
-
-public static void Execute_MenuOnly(BuildContext context)
-{
-    var avatarRoot = context.AvatarRootObject;
-    if (avatarRoot == null) return;
-
-    var descriptor = context.VRChatAvatarDescriptor();
-    if (descriptor == null) return;
-
-    var rootMenu = descriptor.expressionsMenu;
-    if (rootMenu == null)
     {
-        Debug.LogWarning(
-            $"[PshaVRCEmoteInstallerPass] descriptor.expressionsMenu is null on {avatarRoot.name}. " +
-            "Skipped ExpressionsMenu patch."
-        );
-        return;
+        Execute_AnimatorOnly(context);
+        Execute_MenuOnly(context);
     }
 
-    var finalList = CollectFinalInstallers(avatarRoot);
-    if (finalList == null) return;
-
-    bool mayNeedAuto = false;
-    foreach (var m in finalList)
+    private static List<PshaVRCEmoteInstaller> CollectFinalInstallers(GameObject avatarRoot)
     {
-        if (m == null) continue;
-        if (!m.targetMenuAsset.IsSet || m.targetMenuPath == null || m.targetMenuPath.Length == 0)
+        var managers = avatarRoot.GetComponentsInChildren<PshaVRCEmoteInstaller>(true);
+        if (managers == null || managers.Length == 0) return null;
+
+        var list = new List<PshaVRCEmoteInstaller>(managers);
+        list.RemoveAll(m => m == null || !m.gameObject.activeInHierarchy);
+        if (list.Count == 0) return null;
+
+        list.Sort((a, b) => CompareHierarchyOrder(a.transform, b.transform));
+
+        var finalList = FilterFinalSlotWinnersInHierarchyOrder(list);
+        if (finalList.Count == 0) return null;
+
+        return finalList;
+    }
+
+    public static void Execute_AnimatorOnly(BuildContext context)
+    {
+        var avatarRoot = context.AvatarRootObject;
+        if (avatarRoot == null) return;
+
+        var finalList = CollectFinalInstallers(avatarRoot);
+        if (finalList == null) return;
+
+        ApplyBuildObjectRenames(finalList);
+
+        SetupActionTemplates_BC(context, finalList);
+        SetupFxTemplates_BC(context, finalList);
+    }
+
+    private static void ApplyBuildObjectRenames(List<PshaVRCEmoteInstaller> installers)
+    {
+        if (installers == null || installers.Count == 0) return;
+
+        foreach (var installer in installers)
         {
-            mayNeedAuto = true;
-            break;
+            if (installer == null || installer.gameObject == null) continue;
+            if (!installer.useMergeMEFxLayer) continue;
+            if (!installer.autoRenameObjectName) continue;
+
+            var resolvedName = installer.GetResolvedBuildObjectName();
+            if (string.IsNullOrWhiteSpace(resolvedName)) continue;
+
+            if (!string.Equals(installer.gameObject.name, resolvedName, StringComparison.Ordinal))
+            {
+                installer.gameObject.name = resolvedName;
+            }
         }
     }
 
-    VRCExpressionsMenu autoEmoteMenu = FindEmoteMenu(rootMenu);
-    if (mayNeedAuto && autoEmoteMenu == null)
+    public static void Execute_MenuOnly(BuildContext context)
     {
-        Debug.LogWarning(
-            "[PshaVRCEmoteInstallerPass] Failed to auto detect the VRCEmote menu. " +
-            "If your targetMenu reference/path cannot be resolved during build, menu patching will be skipped."
-        );
-    }
+        var avatarRoot = context.AvatarRootObject;
+        if (avatarRoot == null) return;
 
-    var modifications = new Dictionary<VRCExpressionsMenu, List<PshaVRCEmoteInstaller>>();
-    foreach (var m in finalList)
-    {
-        if (m == null) continue;
+        var descriptor = context.VRChatAvatarDescriptor();
+        if (descriptor == null) return;
 
-        var target = ResolveTargetMenu_NoScore(rootMenu, m, autoEmoteMenu);
-        if (target == null) continue;
-
-        if (!modifications.TryGetValue(target, out var g))
+        var rootMenu = descriptor.expressionsMenu;
+        if (rootMenu == null)
         {
-            g = new List<PshaVRCEmoteInstaller>();
-            modifications.Add(target, g);
+            Debug.LogWarning(
+                $"[PshaVRCEmoteInstallerPass] descriptor.expressionsMenu is null on {avatarRoot.name}. " +
+                "Skipped ExpressionsMenu patch."
+            );
+            return;
         }
-        g.Add(m);
+
+        var finalList = CollectFinalInstallers(avatarRoot);
+        if (finalList == null) return;
+
+        bool mayNeedAuto = false;
+        foreach (var m in finalList)
+        {
+            if (m == null) continue;
+            if (!m.targetMenuAsset.IsSet || m.targetMenuPath == null || m.targetMenuPath.Length == 0)
+            {
+                mayNeedAuto = true;
+                break;
+            }
+        }
+
+        VRCExpressionsMenu autoEmoteMenu = FindEmoteMenu(rootMenu);
+        if (mayNeedAuto && autoEmoteMenu == null)
+        {
+            Debug.LogWarning(
+                "[PshaVRCEmoteInstallerPass] Failed to auto detect the VRCEmote menu. " +
+                "If your targetMenu reference/path cannot be resolved during build, menu patching will be skipped."
+            );
+        }
+
+        var modifications = new Dictionary<VRCExpressionsMenu, List<PshaVRCEmoteInstaller>>();
+        foreach (var m in finalList)
+        {
+            if (m == null) continue;
+
+            var target = ResolveTargetMenu_NoScore(rootMenu, m, autoEmoteMenu);
+            if (target == null) continue;
+
+            if (!modifications.TryGetValue(target, out var g))
+            {
+                g = new List<PshaVRCEmoteInstaller>();
+                modifications.Add(target, g);
+            }
+            g.Add(m);
+        }
+
+        if (modifications.Count == 0) return;
+
+        var cloneMap = new Dictionary<VRCExpressionsMenu, VRCExpressionsMenu>();
+        var toSave = new List<UnityEngine.Object>();
+
+        var clonedRoot = CloneAndPatchMenu(rootMenu, modifications, cloneMap, toSave);
+
+        SaveAssetsSafe(context, toSave);
+
+        descriptor.expressionsMenu = clonedRoot;
+
+        Debug.Log($"[PshaVRCEmoteInstallerPass] Applied Psha Modular VRC Emote settings to the cloned menu tree for {avatarRoot.name}.");
     }
-
-    if (modifications.Count == 0) return;
-
-    var cloneMap = new Dictionary<VRCExpressionsMenu, VRCExpressionsMenu>();
-    var toSave = new List<UnityEngine.Object>();
-
-    var clonedRoot = CloneAndPatchMenu(rootMenu, modifications, cloneMap, toSave);
-
-    SaveAssetsSafe(context, toSave);
-
-    descriptor.expressionsMenu = clonedRoot;
-
-    Debug.Log($"[PshaVRCEmoteInstallerPass] Applied Psha Modular VRC Emote settings to the cloned menu tree for {avatarRoot.name}.");
-}
 
 
 

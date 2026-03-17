@@ -94,5 +94,9 @@
   "psha.type.none": "없음",
   "psha.type.toggle": "토글",
   "psha.warn_anim_layer_mismatch": "아바타 Action/FX 레이어 참조가 이 아바타와 일치하지 않습니다(또는 에셋이 누락됨).\n'Setup VRC Emote'를 누르거나 필드를 비워 디스크립터 레이어를 사용하세요.",
-  "psha.warn_target_menu_mismatch": "대상 VRC 이모트 메뉴가 이 아바타에 속하지 않습니다(또는 에셋이 누락됨).\n'Setup VRC Emote'를 누르거나 필드를 비워 자동 탐지를 사용하세요."
+  "psha.warn_target_menu_mismatch": "대상 VRC 이모트 메뉴가 이 아바타에 속하지 않습니다(또는 에셋이 누락됨).\n'Setup VRC Emote'를 누르거나 필드를 비워 자동 탐지를 사용하세요.",
+  "psha.auto_rename_object_name": "오브젝트 이름 자동변환",
+  "psha.tt.auto_rename_object_name": "병합 ME FX 사용 시 아바타 빌드 중 이 GameObject 이름을 자동으로 변경합니다.",
+  "psha.object_name": "오브젝트 이름",
+  "psha.tt.object_name": "빌드 시 사용할 오브젝트 이름입니다. 비워두면 현재 GameObject 이름을 사용합니다."
 }

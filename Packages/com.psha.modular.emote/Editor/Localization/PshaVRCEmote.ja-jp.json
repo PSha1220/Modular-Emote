@@ -94,5 +94,9 @@
   "psha.type.none": "なし",
   "psha.type.toggle": "トグル",
   "psha.warn_anim_layer_mismatch": "アバターの Action/FX レイヤー参照がこのアバターと一致しない（またはアセットが見つかりません）。\n「Setup VRC Emote」を実行するか、フィールドを空にしてディスクリプタのレイヤーを使用してください。",
-  "psha.warn_target_menu_mismatch": "対象 VRC エモートメニューがこのアバターに属していない（またはアセットが見つかりません）。\n「Setup VRC Emote」を実行するか、フィールドを空にして自動検出を使用してください。"
+  "psha.warn_target_menu_mismatch": "対象 VRC エモートメニューがこのアバターに属していない（またはアセットが見つかりません）。\n「Setup VRC Emote」を実行するか、フィールドを空にして自動検出を使用してください。",
+  "psha.auto_rename_object_name": "オブジェクト自動リネーム",
+  "psha.tt.auto_rename_object_name": "ME FX マージ使用時、アバタービルド中にこの GameObject 名を自動変更します。",
+  "psha.object_name": "オブジェクト名",
+  "psha.tt.object_name": "ビルド時のオブジェクト名上書き。空欄の場合は現在の GameObject 名を使用します。"
 }

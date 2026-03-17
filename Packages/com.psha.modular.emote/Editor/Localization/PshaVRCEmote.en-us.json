@@ -94,5 +94,9 @@
   "psha.type.none": "None",
   "psha.type.toggle": "Toggle",
   "psha.warn_anim_layer_mismatch": "Avatar Action/FX layer reference does not match this avatar (or the asset is missing).\nClick 'Setup VRC Emote' or clear the fields to use the descriptor layers.",
-  "psha.warn_target_menu_mismatch": "Target VRC Emote Menu does not belong to this avatar (or the asset is missing).\nClick 'Setup VRC Emote' or clear the field to use auto-detect."
+  "psha.warn_target_menu_mismatch": "Target VRC Emote Menu does not belong to this avatar (or the asset is missing).\nClick 'Setup VRC Emote' or clear the field to use auto-detect.",
+  "psha.auto_rename_object_name": "Auto Rename Object",
+  "psha.tt.auto_rename_object_name": "Automatically rename this GameObject during avatar build when using merged ME FX.",
+  "psha.object_name": "Object Name",
+  "psha.tt.object_name": "Optional build-time object name override. Leave empty to use the current GameObject name."
 }

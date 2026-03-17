@@ -94,5 +94,9 @@
   "psha.type.none": "无",
   "psha.type.toggle": "切换",
   "psha.warn_anim_layer_mismatch": "Avatar 的 Action/FX 图层引用与此 Avatar 不匹配（或资源缺失）。\n请点击“Setup VRC Emote”，或清空字段以使用描述器图层。",
-  "psha.warn_target_menu_mismatch": "目标 VRC 表情菜单不属于此 Avatar（或资源缺失）。\n请点击“Setup VRC Emote”，或清空字段以使用自动检测。"
+  "psha.warn_target_menu_mismatch": "目标 VRC 表情菜单不属于此 Avatar（或资源缺失）。\n请点击“Setup VRC Emote”，或清空字段以使用自动检测。",
+  "psha.auto_rename_object_name": "自动重命名对象",
+  "psha.tt.auto_rename_object_name": "使用合并的 ME FX 时，在 Avatar 构建过程中自动重命名此 GameObject。",
+  "psha.object_name": "对象名称",
+  "psha.tt.object_name": "构建时使用的对象名称覆盖。留空时使用当前 GameObject 名称。"
 }

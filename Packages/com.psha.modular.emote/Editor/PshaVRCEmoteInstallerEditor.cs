@@ -284,6 +284,8 @@ public class PshaVRCEmoteInstallerEditor : Editor
     SerializedProperty _meWriteDefaultsOffProp;
 
     SerializedProperty _useMergeMEFxProp;
+    SerializedProperty _autoRenameObjectNameProp;
+    SerializedProperty _objectNameProp;
     SerializedProperty _useAdditionalMEFxLayersProp;
     SerializedProperty _additionalMEFxLayersProp;
 
@@ -324,6 +326,8 @@ public class PshaVRCEmoteInstallerEditor : Editor
         _meWriteDefaultsOffProp = serializedObject.FindProperty("meWriteDefaultsOff");
 
         _useMergeMEFxProp = serializedObject.FindProperty("useMergeMEFxLayer");
+        _autoRenameObjectNameProp = serializedObject.FindProperty("autoRenameObjectName");
+        _objectNameProp = serializedObject.FindProperty("objectName");
         _useAdditionalMEFxLayersProp = serializedObject.FindProperty("useAdditionalMEFxLayers");
         _additionalMEFxLayersProp = serializedObject.FindProperty("additionalMEFxLayers");
 
@@ -336,6 +340,7 @@ public class PshaVRCEmoteInstallerEditor : Editor
         serializedObject.Update();
 
         if (_slotIndexProp == null || _useMergeMEFxProp == null ||
+            _autoRenameObjectNameProp == null || _objectNameProp == null ||
             _showActionMergeScopeProp == null || _actionMergeScopeProp == null ||
             _MEfxMotionProp == null || _useAdditionalMEFxLayersProp == null ||
             _additionalMEFxLayersProp == null)
@@ -344,6 +349,7 @@ public class PshaVRCEmoteInstallerEditor : Editor
         }
 
         if (_slotIndexProp == null || _useMergeMEFxProp == null ||
+            _autoRenameObjectNameProp == null || _objectNameProp == null ||
             _showActionMergeScopeProp == null || _actionMergeScopeProp == null ||
             _MEfxMotionProp == null || _useAdditionalMEFxLayersProp == null ||
             _additionalMEFxLayersProp == null)
@@ -461,6 +467,14 @@ public class PshaVRCEmoteInstallerEditor : Editor
                 // Warn when the selected menu does not belong to this avatar
                 DrawTargetMenuAvatarMismatchWarning(mgr);
 
+                if (_useMergeMEFxProp.boolValue && _autoRenameObjectNameProp.boolValue)
+                {
+                    EditorGUILayout.PropertyField(
+                        _objectNameProp,
+                        GC("psha.object_name", "Object Name", "psha.tt.object_name", "Optional build-time object name override. Leave empty to use the current GameObject name.")
+                    );
+                }
+
                 EditorGUILayout.Space(4);
 
 
@@ -575,6 +589,10 @@ public class PshaVRCEmoteInstallerEditor : Editor
                     {
                         EditorGUI.indentLevel++;
 
+                        EditorGUILayout.PropertyField(
+                            _autoRenameObjectNameProp,
+                            GC("psha.auto_rename_object_name", "Auto Rename Object", "psha.tt.auto_rename_object_name", "Automatically rename this GameObject during avatar build when using merged ME FX.")
+                        );
 
                         EditorGUI.BeginChangeCheck();
                         EditorGUILayout.PropertyField(
@@ -744,12 +762,13 @@ public class PshaVRCEmoteInstallerEditor : Editor
     {
         if (mgr == null) return;
 
-
         if (!mgr.useMergeMEFxLayer) return;
 
-        var emoteName = mgr.emoteName;
-        var objName = mgr.gameObject != null ? mgr.gameObject.name : null;
+        if (mgr.autoRenameObjectName && !string.IsNullOrWhiteSpace(mgr.objectName))
+            return;
 
+        var emoteName = GetPlainObjectNameFromEmoteName(mgr.emoteName);
+        var objName = mgr.gameObject != null ? mgr.gameObject.name : null;
 
         if (string.IsNullOrEmpty(emoteName)) return;
 
@@ -1430,15 +1449,34 @@ public class PshaVRCEmoteInstallerEditor : Editor
 
 
 
-        if (!string.IsNullOrEmpty(mgr.emoteName) && mgr.gameObject != null)
+        bool hasExplicitBuildObjectName =
+            mgr.useMergeMEFxLayer &&
+            mgr.autoRenameObjectName &&
+            !string.IsNullOrWhiteSpace(mgr.objectName);
+
+        var plainEmoteObjectName = GetPlainObjectNameFromEmoteName(mgr.emoteName);
+
+        if (!hasExplicitBuildObjectName && !string.IsNullOrEmpty(plainEmoteObjectName) && mgr.gameObject != null)
         {
-            if (mgr.gameObject.name != mgr.emoteName)
+            if (mgr.gameObject.name != plainEmoteObjectName)
             {
                 Undo.RecordObject(mgr.gameObject, "Rename Emote Object");
-                mgr.gameObject.name = mgr.emoteName;
+                mgr.gameObject.name = plainEmoteObjectName;
                 EditorUtility.SetDirty(mgr.gameObject);
             }
         }
+    }
+
+
+    private static string GetPlainObjectNameFromEmoteName(string emoteName)
+    {
+        if (string.IsNullOrEmpty(emoteName)) return string.Empty;
+        var plain = Regex.Replace(emoteName, @"<\s*br\s*/?\s*>", string.Empty, RegexOptions.IgnoreCase);
+        plain = Regex.Replace(plain, @"<[^>]+>", string.Empty);
+        plain = plain.Replace("\r", string.Empty).Replace("\n", string.Empty);
+        plain = plain.Trim();
+
+        return plain;
     }
 
 
