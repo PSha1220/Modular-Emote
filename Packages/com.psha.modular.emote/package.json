@@ -10,7 +10,7 @@
     "url": "https://x.com/P_ConnectStore"
   },
   "vpmDependencies": {
-    "com.vrchat.avatars": "3.10.1",
-    "nadena.dev.ndmf": "^1.0.0"
+    "com.vrchat.avatars": "3.x.x",
+    "nadena.dev.ndmf": "^1.x.x"
   }
 }
