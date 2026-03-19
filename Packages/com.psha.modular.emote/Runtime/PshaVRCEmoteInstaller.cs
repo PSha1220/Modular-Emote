@@ -80,7 +80,7 @@ public class PshaVRCEmoteInstaller : MonoBehaviour, IEditorOnly
     [Tooltip("Automatically rename this GameObject during avatar build when using merged ME FX")]
     public bool autoRenameObjectName = true;
 
-    [Tooltip("Optional build-time object name override. Leave empty to use the current GameObject name")]
+    [Tooltip("Object name applied during avatar build. Leave empty to use the current GameObject name")]
     public string objectName = string.Empty;
 
     [Tooltip("Whether to use additional ME FX layers")]

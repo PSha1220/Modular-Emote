@@ -340,7 +340,7 @@ public class PshaVRCEmoteInstallerEditor : Editor
         serializedObject.Update();
 
         if (_slotIndexProp == null || _useMergeMEFxProp == null ||
-            _autoRenameObjectNameProp == null || _objectNameProp == null ||
+            _objectNameProp == null ||
             _showActionMergeScopeProp == null || _actionMergeScopeProp == null ||
             _MEfxMotionProp == null || _useAdditionalMEFxLayersProp == null ||
             _additionalMEFxLayersProp == null)
@@ -349,7 +349,7 @@ public class PshaVRCEmoteInstallerEditor : Editor
         }
 
         if (_slotIndexProp == null || _useMergeMEFxProp == null ||
-            _autoRenameObjectNameProp == null || _objectNameProp == null ||
+            _objectNameProp == null ||
             _showActionMergeScopeProp == null || _actionMergeScopeProp == null ||
             _MEfxMotionProp == null || _useAdditionalMEFxLayersProp == null ||
             _additionalMEFxLayersProp == null)
@@ -368,7 +368,6 @@ public class PshaVRCEmoteInstallerEditor : Editor
 
         if (_useMergeMEFxProp.boolValue)
         {
-            DrawEmoteNameMismatchWarning(mgr);
             DrawSharedFxLayerWarning(mgr);
         }
 
@@ -467,12 +466,14 @@ public class PshaVRCEmoteInstallerEditor : Editor
                 // Warn when the selected menu does not belong to this avatar
                 DrawTargetMenuAvatarMismatchWarning(mgr);
 
-                if (_useMergeMEFxProp.boolValue && _autoRenameObjectNameProp.boolValue)
+                if (_useMergeMEFxProp.boolValue)
                 {
                     EditorGUILayout.PropertyField(
                         _objectNameProp,
-                        GC("psha.object_name", "Object Name", "psha.tt.object_name", "Optional build-time object name override. Leave empty to use the current GameObject name.")
+                        GC("psha.object_name", "Build Object Name", "psha.tt.object_name", "Object name applied during avatar build. Leave empty to use the current GameObject name.")
                     );
+
+                    DrawBuildObjectNameGuidance(mgr);
                 }
 
                 EditorGUILayout.Space(4);
@@ -569,6 +570,7 @@ public class PshaVRCEmoteInstallerEditor : Editor
                         if (!_useMergeMEFxProp.boolValue)
                         {
                             _MEfxMotionProp.objectReferenceValue = null;
+                            _objectNameProp.stringValue = string.Empty;
 
                             _useAdditionalMEFxLayersProp.boolValue = false;
 
@@ -588,11 +590,6 @@ public class PshaVRCEmoteInstallerEditor : Editor
                     if (_useMergeMEFxProp.boolValue)
                     {
                         EditorGUI.indentLevel++;
-
-                        EditorGUILayout.PropertyField(
-                            _autoRenameObjectNameProp,
-                            GC("psha.auto_rename_object_name", "Auto Rename Object", "psha.tt.auto_rename_object_name", "Automatically rename this GameObject during avatar build when using merged ME FX.")
-                        );
 
                         EditorGUI.BeginChangeCheck();
                         EditorGUILayout.PropertyField(
@@ -758,39 +755,29 @@ public class PshaVRCEmoteInstallerEditor : Editor
 
 
 
-    private void DrawEmoteNameMismatchWarning(PshaVRCEmoteInstaller mgr)
+
+    private bool HasBuildObjectNameGuidance(PshaVRCEmoteInstaller mgr)
     {
-        if (mgr == null) return;
-
-        if (!mgr.useMergeMEFxLayer) return;
-
-        if (mgr.autoRenameObjectName && !string.IsNullOrWhiteSpace(mgr.objectName))
-            return;
-
-        var emoteName = GetPlainObjectNameFromEmoteName(mgr.emoteName);
-        var objName = mgr.gameObject != null ? mgr.gameObject.name : null;
-
-        if (string.IsNullOrEmpty(emoteName)) return;
-
-        if (!string.Equals(emoteName, objName, System.StringComparison.Ordinal))
-        {
-            EditorGUILayout.HelpBox(
-                Tr(
-                    "psha.warn_name_mismatch",
-                    "The emote name does not match the GameObject name.\n" +
-                    "Results may differ when using ME FX layers.\n" +
-                    "Click 'Setup VRC Emote' or make the names match."
-                ),
-                MessageType.Warning
-            );
-            EditorGUILayout.Space(4);
-        }
+        if (mgr == null) return false;
+        if (!mgr.useMergeMEFxLayer) return false;
+        return string.IsNullOrWhiteSpace(mgr.objectName);
     }
 
+    private void DrawBuildObjectNameGuidance(PshaVRCEmoteInstaller mgr)
+    {
+        if (!HasBuildObjectNameGuidance(mgr)) return;
 
-
-
-
+        EditorGUILayout.HelpBox(
+            Tr(
+                "psha.info_build_object_name",
+                "Set the object name that will be used during avatar build.\n" +
+                "When using ME FX layers, changing the object name can change animation paths and lead to different results.\n" +
+                "Press Setup VRC Emote to fill this automatically with the current object name."
+            ),
+            MessageType.Info
+        );
+        EditorGUILayout.Space(4);
+    }
 
     private void DrawSharedFxLayerWarning(PshaVRCEmoteInstaller mgr)
     {
@@ -1449,21 +1436,14 @@ public class PshaVRCEmoteInstallerEditor : Editor
 
 
 
-        bool hasExplicitBuildObjectName =
-            mgr.useMergeMEFxLayer &&
-            mgr.autoRenameObjectName &&
-            !string.IsNullOrWhiteSpace(mgr.objectName);
-
-        var plainEmoteObjectName = GetPlainObjectNameFromEmoteName(mgr.emoteName);
-
-        if (!hasExplicitBuildObjectName && !string.IsNullOrEmpty(plainEmoteObjectName) && mgr.gameObject != null)
+        if (mgr.useMergeMEFxLayer &&
+            string.IsNullOrWhiteSpace(mgr.objectName) &&
+            mgr.gameObject != null)
         {
-            if (mgr.gameObject.name != plainEmoteObjectName)
-            {
-                Undo.RecordObject(mgr.gameObject, "Rename Emote Object");
-                mgr.gameObject.name = plainEmoteObjectName;
-                EditorUtility.SetDirty(mgr.gameObject);
-            }
+            Undo.RecordObject(mgr, "Set Build Object Name");
+            _objectNameProp.stringValue = mgr.gameObject.name;
+            serializedObject.ApplyModifiedProperties();
+            EditorUtility.SetDirty(mgr);
         }
     }
 
@@ -2435,6 +2415,9 @@ public class PshaVRCEmoteInstallerEditor : Editor
             n.error += CalcActionStateValidationErrorCount(desc);
         }
 #endif
+
+        if (HasBuildObjectNameGuidance(mgr))
+            n.info++;
 
         // Info message that appears in Advanced Options ("Using multiple FX layers...")
         if (_useMergeMEFxProp != null && _useAdditionalMEFxLayersProp != null

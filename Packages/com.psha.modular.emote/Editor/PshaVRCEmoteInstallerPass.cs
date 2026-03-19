@@ -91,7 +91,6 @@ public static class PshaVRCEmoteInstallerPass
         {
             if (installer == null || installer.gameObject == null) continue;
             if (!installer.useMergeMEFxLayer) continue;
-            if (!installer.autoRenameObjectName) continue;
 
             var resolvedName = installer.GetResolvedBuildObjectName();
             if (string.IsNullOrWhiteSpace(resolvedName)) continue;

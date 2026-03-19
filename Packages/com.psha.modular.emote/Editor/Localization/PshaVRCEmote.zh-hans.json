@@ -97,6 +97,7 @@
   "psha.warn_target_menu_mismatch": "目标 VRC 表情菜单不属于此 Avatar（或资源缺失）。\n请点击“Setup VRC Emote”，或清空字段以使用自动检测。",
   "psha.auto_rename_object_name": "自动重命名对象",
   "psha.tt.auto_rename_object_name": "使用合并的 ME FX 时，在 Avatar 构建过程中自动重命名此 GameObject。",
-  "psha.object_name": "对象名称",
-  "psha.tt.object_name": "构建时使用的对象名称覆盖。留空时使用当前 GameObject 名称。"
+  "psha.object_name": "构建用对象名称",
+  "psha.tt.object_name": "Avatar 构建时应用的对象名称。留空时使用当前 GameObject 名称。",
+  "psha.info_build_object_name": "请设置 Avatar 构建时会转换为的对象名称。\n使用 ME FX 图层时，更改对象名称可能会导致动画路径发生变化，从而使结果不同。\n点击 Setup VRC Emote 按钮后，会自动填入当前对象名称。"
 }

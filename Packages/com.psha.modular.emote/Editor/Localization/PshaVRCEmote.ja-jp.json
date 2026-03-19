@@ -97,6 +97,7 @@
   "psha.warn_target_menu_mismatch": "対象 VRC エモートメニューがこのアバターに属していない（またはアセットが見つかりません）。\n「Setup VRC Emote」を実行するか、フィールドを空にして自動検出を使用してください。",
   "psha.auto_rename_object_name": "オブジェクト自動リネーム",
   "psha.tt.auto_rename_object_name": "ME FX マージ使用時、アバタービルド中にこの GameObject 名を自動変更します。",
-  "psha.object_name": "オブジェクト名",
-  "psha.tt.object_name": "ビルド時のオブジェクト名上書き。空欄の場合は現在の GameObject 名を使用します。"
+  "psha.object_name": "ビルド用オブジェクト名",
+  "psha.tt.object_name": "アバタービルド時に適用するオブジェクト名です。空欄の場合は現在の GameObject 名を使用します。",
+  "psha.info_build_object_name": "アバタービルド時に変換されるオブジェクト名を設定してください。\nME FX レイヤーを使用する場合、オブジェクト名の変更によりアニメーションパスが変わり、結果が変わる可能性があります。\nSetup VRC Emote ボタンを押すと、現在のオブジェクト名が自動入力されます。"
 }

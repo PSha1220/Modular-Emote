@@ -97,6 +97,7 @@
   "psha.warn_target_menu_mismatch": "Target VRC Emote Menu does not belong to this avatar (or the asset is missing).\nClick 'Setup VRC Emote' or clear the field to use auto-detect.",
   "psha.auto_rename_object_name": "Auto Rename Object",
   "psha.tt.auto_rename_object_name": "Automatically rename this GameObject during avatar build when using merged ME FX.",
-  "psha.object_name": "Object Name",
-  "psha.tt.object_name": "Optional build-time object name override. Leave empty to use the current GameObject name."
+  "psha.object_name": "Build Object Name",
+  "psha.tt.object_name": "Object name applied during avatar build. Leave empty to use the current GameObject name.",
+  "psha.info_build_object_name": "Set the object name that will be applied during avatar build.\nWhen using ME FX layers, changing the object name can change animation paths and lead to different results.\nPress Setup VRC Emote to fill this automatically with the current object name."
 }
