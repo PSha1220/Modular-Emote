@@ -12,11 +12,7 @@ public sealed class PshaVRCEmoteInstallerPlugin : Plugin<PshaVRCEmoteInstallerPl
     {
         InPhase(BuildPhase.Transforming)
             .AfterPlugin("nadena.dev.modular-avatar")
-            .Run("Psha Modular VRC Emote - Animator", PshaVRCEmoteInstallerPass.Execute_AnimatorOnly);
-
-        InPhase(BuildPhase.Optimizing)
-            .AfterPlugin("nadena.dev.modular-avatar")
-            .Run("Psha Modular VRC Emote - Menu", PshaVRCEmoteInstallerPass.Execute_MenuOnly);
+            .Run("Psha Modular VRC Emote", PshaVRCEmoteInstallerPass.Execute);
     }
 }
 #endif

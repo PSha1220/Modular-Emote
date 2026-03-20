@@ -77,10 +77,7 @@ public class PshaVRCEmoteInstaller : MonoBehaviour, IEditorOnly
     [Tooltip("Whether to use the merge ME FX layer template")]
     public bool useMergeMEFxLayer;
 
-    [Tooltip("Automatically rename this GameObject during avatar build when using merged ME FX")]
-    public bool autoRenameObjectName = true;
-
-    [Tooltip("Object name applied during avatar build. Leave empty to use the current GameObject name")]
+    [Tooltip("Object name applied during avatar build. Leave empty to use the current GameObject name.")]
     public string objectName = string.Empty;
 
     [Tooltip("Whether to use additional ME FX layers")]
@@ -95,21 +92,11 @@ public class PshaVRCEmoteInstaller : MonoBehaviour, IEditorOnly
     [SerializeField, HideInInspector]
     private int _cachedAvatarDescriptorInstanceId;
 
-    [SerializeField, HideInInspector]
-    private bool _autoRenameObjectNameInitialized;
-
     private void OnValidate()
     {
         slotIndex = Mathf.Clamp(slotIndex, 1, 8);
         valueInternal = slotIndex;
         parameterNameInternal = "VRCEmote";
-
-        if (!_autoRenameObjectNameInitialized)
-        {
-            autoRenameObjectName = true;
-            _autoRenameObjectNameInitialized = true;
-        }
-
         if (objectName == null)
             objectName = string.Empty;
 
@@ -191,9 +178,7 @@ public class PshaVRCEmoteInstaller : MonoBehaviour, IEditorOnly
 
         // FX merge settings
         useMergeMEFxLayer = false;
-        autoRenameObjectName = true;
         objectName = string.Empty;
-        _autoRenameObjectNameInitialized = true;
         useAdditionalMEFxLayers = false;
         additionalMEFxLayers = Array.Empty<RuntimeAnimatorController>();
 

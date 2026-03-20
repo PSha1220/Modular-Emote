@@ -48,65 +48,91 @@ public static class PshaVRCEmoteInstallerPass
 
     public static void Execute(BuildContext context)
     {
-        Execute_AnimatorOnly(context);
-        Execute_MenuOnly(context);
+        var avatarRoot = context.AvatarRootObject;
+        if (avatarRoot == null) return;
+
+        var activeInstallers = CollectActiveInstallers(avatarRoot);
+        if (activeInstallers == null) return;
+
+        context.ActivateExtensionContextRecursive<AnimatorServicesContext>();
+        ApplyBuildObjectRenames(activeInstallers);
+
+        var finalList = CollectFinalInstallers(activeInstallers);
+        if (finalList == null) return;
+
+        SetupActionTemplates_BC(context, finalList);
+        SetupFxTemplates_BC(context, finalList);
+        PatchExpressionsMenu(context, avatarRoot, finalList);
     }
 
-    private static List<PshaVRCEmoteInstaller> CollectFinalInstallers(GameObject avatarRoot)
+    private static List<PshaVRCEmoteInstaller> CollectActiveInstallers(GameObject avatarRoot)
     {
         var managers = avatarRoot.GetComponentsInChildren<PshaVRCEmoteInstaller>(true);
         if (managers == null || managers.Length == 0) return null;
 
         var list = new List<PshaVRCEmoteInstaller>(managers);
-        list.RemoveAll(m => m == null || !m.gameObject.activeInHierarchy);
+        list.RemoveAll(m => m == null || !m.gameObject.activeInHierarchy || !m.enabled);
         if (list.Count == 0) return null;
 
         list.Sort((a, b) => CompareHierarchyOrder(a.transform, b.transform));
+        return list;
+    }
 
-        var finalList = FilterFinalSlotWinnersInHierarchyOrder(list);
+    private static List<PshaVRCEmoteInstaller> CollectFinalInstallers(List<PshaVRCEmoteInstaller> activeInstallers)
+    {
+        if (activeInstallers == null || activeInstallers.Count == 0) return null;
+
+        var finalList = FilterFinalSlotWinnersInHierarchyOrder(activeInstallers);
         if (finalList.Count == 0) return null;
 
         return finalList;
     }
 
-    public static void Execute_AnimatorOnly(BuildContext context)
-    {
-        var avatarRoot = context.AvatarRootObject;
-        if (avatarRoot == null) return;
-
-        var finalList = CollectFinalInstallers(avatarRoot);
-        if (finalList == null) return;
-
-        ApplyBuildObjectRenames(finalList);
-
-        SetupActionTemplates_BC(context, finalList);
-        SetupFxTemplates_BC(context, finalList);
-    }
 
     private static void ApplyBuildObjectRenames(List<PshaVRCEmoteInstaller> installers)
     {
         if (installers == null || installers.Count == 0) return;
 
+        var processed = new HashSet<GameObject>();
+
         foreach (var installer in installers)
         {
             if (installer == null || installer.gameObject == null) continue;
-            if (!installer.useMergeMEFxLayer) continue;
+            if (!processed.Add(installer.gameObject)) continue;
 
-            var resolvedName = installer.GetResolvedBuildObjectName();
+            var owner = GetPrimaryBuildObjectRenameOwner(installer.gameObject);
+            if (owner == null || !owner.useMergeMEFxLayer) continue;
+
+            var resolvedName = owner.GetResolvedBuildObjectName();
             if (string.IsNullOrWhiteSpace(resolvedName)) continue;
 
-            if (!string.Equals(installer.gameObject.name, resolvedName, StringComparison.Ordinal))
+            if (!string.Equals(owner.gameObject.name, resolvedName, StringComparison.Ordinal))
             {
-                installer.gameObject.name = resolvedName;
+                owner.gameObject.name = resolvedName;
             }
         }
     }
 
-    public static void Execute_MenuOnly(BuildContext context)
+    private static PshaVRCEmoteInstaller GetPrimaryBuildObjectRenameOwner(GameObject gameObject)
     {
-        var avatarRoot = context.AvatarRootObject;
-        if (avatarRoot == null) return;
+        if (gameObject == null || !gameObject.activeInHierarchy) return null;
 
+        var installers = gameObject.GetComponents<PshaVRCEmoteInstaller>();
+        if (installers == null || installers.Length == 0) return null;
+
+        for (int i = 0; i < installers.Length; i++)
+        {
+            var installer = installers[i];
+            if (installer == null) continue;
+            if (!installer.enabled || !installer.gameObject.activeInHierarchy) continue;
+            return installer;
+        }
+
+        return null;
+    }
+
+    private static void PatchExpressionsMenu(BuildContext context, GameObject avatarRoot, List<PshaVRCEmoteInstaller> finalList)
+    {
         var descriptor = context.VRChatAvatarDescriptor();
         if (descriptor == null) return;
 
@@ -119,9 +145,6 @@ public static class PshaVRCEmoteInstallerPass
             );
             return;
         }
-
-        var finalList = CollectFinalInstallers(avatarRoot);
-        if (finalList == null) return;
 
         bool mayNeedAuto = false;
         foreach (var m in finalList)
@@ -1019,28 +1042,6 @@ public static class PshaVRCEmoteInstallerPass
         return autoEmoteMenu;
     }
 
-
-    private static bool TryFollowMenuPath(VRCExpressionsMenu root, int[] path, out VRCExpressionsMenu menu)
-    {
-        menu = root;
-        if (root == null || path == null) return false;
-
-        for (int i = 0; i < path.Length; i++)
-        {
-            if (menu == null || menu.controls == null) return false;
-
-            int idx = path[i];
-            if (idx < 0 || idx >= menu.controls.Count) return false;
-
-            var c = menu.controls[idx];
-            if (c == null || c.subMenu == null) return false;
-
-            menu = c.subMenu;
-        }
-
-        return true;
-    }
-
     private static bool IsMenuInTree(VRCExpressionsMenu root, VRCExpressionsMenu target)
     {
         if (root == null || target == null) return false;
@@ -1741,43 +1742,6 @@ public static class PshaVRCEmoteInstallerPass
                 if (child.StateMachine != null) stack.Push(child.StateMachine);
             }
         }
-    }
-
-
-
-
-
-
-    private static void ConnectTemplateEndToEndState(
-        VirtualState templateEnd,
-        VirtualState endState
-    )
-    {
-        if (templateEnd == null || endState == null) return;
-
-
-        var transitions = templateEnd.Transitions;
-        if (transitions == null)
-        {
-            transitions = ImmutableList<VirtualStateTransition>.Empty;
-        }
-
-
-        var newTransition = VirtualStateTransition.Create();
-
-
-
-        newTransition.SetDestination(endState);
-
-
-
-
-
-
-
-
-        transitions = transitions.Add(newTransition);
-        templateEnd.Transitions = transitions;
     }
 
 

@@ -1,9 +1,9 @@
 #if UNITY_EDITOR
 using System.Collections.Generic;
 using System;
-using System.Text.RegularExpressions;
 using System.Text;
 using System.IO;
+using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEngine;
 using UnityEditor.Animations;
@@ -284,7 +284,6 @@ public class PshaVRCEmoteInstallerEditor : Editor
     SerializedProperty _meWriteDefaultsOffProp;
 
     SerializedProperty _useMergeMEFxProp;
-    SerializedProperty _autoRenameObjectNameProp;
     SerializedProperty _objectNameProp;
     SerializedProperty _useAdditionalMEFxLayersProp;
     SerializedProperty _additionalMEFxLayersProp;
@@ -295,12 +294,58 @@ public class PshaVRCEmoteInstallerEditor : Editor
     static bool s_previewFoldout = true;
     static bool s_advancedFoldout = false;
 
+    private enum PreviewMode
+    {
+        Radial = 0,
+        List = 1,
+    }
+
+    private struct PreviewSlotData
+    {
+        public int slot;
+        public int controlIndex;
+        public string beforeName;
+        public VRCExpressionsMenu.Control.ControlType beforeType;
+        public string afterName;
+        public VRCExpressionsMenu.Control.ControlType afterType;
+        public bool changed;
+        public bool isWinnerForCurrent;
+        public bool isSelectedByCurrent;
+        public Texture2D icon;
+        public PshaVRCEmoteInstaller finalManager;
+    }
+
+    private struct PreviewData
+    {
+        public VRCExpressionsMenu previewMenu;
+        public bool previewIsAuto;
+        public PreviewSlotData[] slots;
+    }
+
+    private const string PrefKey_PreviewMode = "PshaVRCEmote.Preview.Mode";
+    private static PreviewMode s_previewMode = PreviewMode.Radial;
+    private static bool s_previewModeLoaded;
+
+    private const double PreviewPulseDuration = 0.22d;
+    private int _previewPulseSlot = -1;
+    private double _previewPulseStartTime = -1000d;
+    private int _lastObservedPreviewSlot = -1;
+
+    private static Texture2D s_previewRadialBackground;
+    private static Texture2D s_previewRadialCenter;
+    private static Texture2D s_previewRadialBackIcon;
+
     void OnEnable()
     {
+        EnsurePreviewModeLoaded();
+
         // Always start collapsed for distribution stability
         s_devFoldout = false;
 
         CacheSerializedProps();
+        _lastObservedPreviewSlot = _slotIndexProp != null ? Mathf.Clamp(_slotIndexProp.intValue, 1, 8) : 1;
+        _previewPulseSlot = -1;
+        _previewPulseStartTime = -1000d;
     }
     void CacheSerializedProps()
     {
@@ -326,7 +371,6 @@ public class PshaVRCEmoteInstallerEditor : Editor
         _meWriteDefaultsOffProp = serializedObject.FindProperty("meWriteDefaultsOff");
 
         _useMergeMEFxProp = serializedObject.FindProperty("useMergeMEFxLayer");
-        _autoRenameObjectNameProp = serializedObject.FindProperty("autoRenameObjectName");
         _objectNameProp = serializedObject.FindProperty("objectName");
         _useAdditionalMEFxLayersProp = serializedObject.FindProperty("useAdditionalMEFxLayers");
         _additionalMEFxLayersProp = serializedObject.FindProperty("additionalMEFxLayers");
@@ -362,6 +406,7 @@ public class PshaVRCEmoteInstallerEditor : Editor
 
         var mgr = (PshaVRCEmoteInstaller)target;
 
+        ObservePreviewSlotSelection();
 
         DrawPlacementGuidance(mgr);
 
@@ -438,6 +483,10 @@ public class PshaVRCEmoteInstallerEditor : Editor
         EditorGUILayout.Space();
 
 
+
+        EditorGUILayout.Space();
+
+
         var devNotices = CalcDeveloperOptionsNotices(mgr);
         s_devFoldout = DrawFoldoutWithNoticeIcons(
             s_devFoldout,
@@ -452,6 +501,19 @@ public class PshaVRCEmoteInstallerEditor : Editor
             using (new EditorGUILayout.VerticalScope("box"))
             using (new GuiModeScope(CalcStableLabelWidth(), wideMode: true))
             {
+                if (ShouldShowBuildObjectNameField(mgr))
+                {
+                    EditorGUILayout.LabelField(Tr("psha.build_settings", "Build Settings"), EditorStyles.boldLabel);
+
+                    EditorGUILayout.PropertyField(
+                        _objectNameProp,
+                        GC("psha.object_name", "Build-time Object Name", "psha.tt.object_name", "Set the object name that will be used during avatar build. Leave empty to use the current GameObject name.")
+                    );
+
+                    DrawBuildObjectNameGuidance(mgr);
+                    EditorGUILayout.Space(4);
+                }
+
                 EditorGUILayout.LabelField(Tr("psha.vrc_emote_settings", "VRC Emote Settings"), EditorStyles.boldLabel);
 
                 EditorGUI.BeginChangeCheck();
@@ -466,19 +528,7 @@ public class PshaVRCEmoteInstallerEditor : Editor
                 // Warn when the selected menu does not belong to this avatar
                 DrawTargetMenuAvatarMismatchWarning(mgr);
 
-                if (_useMergeMEFxProp.boolValue)
-                {
-                    EditorGUILayout.PropertyField(
-                        _objectNameProp,
-                        GC("psha.object_name", "Build Object Name", "psha.tt.object_name", "Object name applied during avatar build. Leave empty to use the current GameObject name.")
-                    );
-
-                    DrawBuildObjectNameGuidance(mgr);
-                }
-
                 EditorGUILayout.Space(4);
-
-
 
                 EditorGUILayout.LabelField(Tr("psha.menu_settings", "Menu Settings"), EditorStyles.miniBoldLabel);
 
@@ -710,11 +760,9 @@ public class PshaVRCEmoteInstallerEditor : Editor
             EditorGUILayout.EndHorizontal();
         }
 
-
         EditorGUILayout.Space();
 
-
-        s_previewFoldout = EditorGUILayout.Foldout(s_previewFoldout, Tr("psha.preview_foldout", "Show Applied Changes (Preview)"));
+        s_previewFoldout = EditorGUILayout.Foldout(s_previewFoldout, Tr("psha.preview_foldout", "Preview"));
         if (s_previewFoldout)
         {
             using (new EditorGUILayout.VerticalScope("box"))
@@ -722,6 +770,7 @@ public class PshaVRCEmoteInstallerEditor : Editor
                 DrawCombinedPreview(mgr);
             }
         }
+
         DrawEditorLanguageSection();
         serializedObject.ApplyModifiedProperties();
     }
@@ -734,8 +783,7 @@ public class PshaVRCEmoteInstallerEditor : Editor
     {
         if (mgr == null) return;
 
-
-        var descriptor = mgr.GetComponentInParent<VRCAvatarDescriptor>();
+        var descriptor = FindParentAvatarDescriptorIncludingInactive(mgr);
         if (descriptor == null)
         {
             EditorGUILayout.HelpBox(
@@ -747,6 +795,16 @@ public class PshaVRCEmoteInstallerEditor : Editor
                 MessageType.Warning
             );
             EditorGUILayout.Space(4);
+            return;
+        }
+
+        if (!descriptor.gameObject.activeInHierarchy)
+        {
+            EditorGUILayout.HelpBox(
+                Tr("psha.info_avatar_inactive", "Avatar is inactive."),
+                MessageType.Info
+            );
+            EditorGUILayout.Space(4);
         }
     }
 
@@ -756,10 +814,35 @@ public class PshaVRCEmoteInstallerEditor : Editor
 
 
 
-    private bool HasBuildObjectNameGuidance(PshaVRCEmoteInstaller mgr)
+    private static bool IsPrimaryBuildObjectNameInstaller(PshaVRCEmoteInstaller mgr)
+    {
+        if (mgr == null || mgr.gameObject == null) return false;
+        if (!mgr.enabled || !mgr.gameObject.activeInHierarchy) return false;
+
+        var installers = mgr.gameObject.GetComponents<PshaVRCEmoteInstaller>();
+        if (installers == null || installers.Length == 0) return false;
+
+        for (int i = 0; i < installers.Length; i++)
+        {
+            var installer = installers[i];
+            if (installer == null) continue;
+            if (!installer.enabled || !installer.gameObject.activeInHierarchy) continue;
+            return ReferenceEquals(installer, mgr);
+        }
+
+        return false;
+    }
+
+    private bool ShouldShowBuildObjectNameField(PshaVRCEmoteInstaller mgr)
     {
         if (mgr == null) return false;
         if (!mgr.useMergeMEFxLayer) return false;
+        return IsPrimaryBuildObjectNameInstaller(mgr);
+    }
+
+    private bool HasBuildObjectNameGuidance(PshaVRCEmoteInstaller mgr)
+    {
+        if (!ShouldShowBuildObjectNameField(mgr)) return false;
         return string.IsNullOrWhiteSpace(mgr.objectName);
     }
 
@@ -770,14 +853,15 @@ public class PshaVRCEmoteInstallerEditor : Editor
         EditorGUILayout.HelpBox(
             Tr(
                 "psha.info_build_object_name",
-                "Set the object name that will be used during avatar build.\n" +
-                "When using ME FX layers, changing the object name can change animation paths and lead to different results.\n" +
+                "Set the object name that will be transformed during avatar build.\n" +
+                "You can pin the object name so animation paths do not change even if the user renames the object.\n" +
                 "Press Setup VRC Emote to fill this automatically with the current object name."
             ),
             MessageType.Info
         );
         EditorGUILayout.Space(4);
     }
+
 
     private void DrawSharedFxLayerWarning(PshaVRCEmoteInstaller mgr)
     {
@@ -787,7 +871,7 @@ public class PshaVRCEmoteInstallerEditor : Editor
         if (!mgr.useMergeMEFxLayer || mgr.fxMELayer == null) return;
 
 
-        var descriptor = mgr.GetComponentInParent<VRCAvatarDescriptor>();
+        var descriptor = FindParentAvatarDescriptorIncludingInactive(mgr);
         if (descriptor == null) return;
 
 
@@ -802,8 +886,7 @@ public class PshaVRCEmoteInstallerEditor : Editor
             // exclude inactive objects (matches Pass rule)
             if (!other.gameObject.activeInHierarchy) continue;
 
-            // (optional) exclude disabled component too
-            // if (!other.enabled) continue;
+            if (!other.enabled) continue;
 
             if (!other.useMergeMEFxLayer) continue;
             if (other.fxMELayer == null) continue;
@@ -890,11 +973,26 @@ public class PshaVRCEmoteInstallerEditor : Editor
     }
 
 #if VRC_SDK_VRCSDK3
+    private static VRCAvatarDescriptor FindParentAvatarDescriptorIncludingInactive(Component component)
+    {
+        if (component == null) return null;
+
+        Transform current = component.transform;
+        while (current != null)
+        {
+            var descriptor = current.GetComponent<VRCAvatarDescriptor>();
+            if (descriptor != null) return descriptor;
+            current = current.parent;
+        }
+
+        return null;
+    }
+
     private static bool TryGetAvatarDescriptor(PshaVRCEmoteInstaller mgr, out VRCAvatarDescriptor desc)
     {
         desc = null;
         if (mgr == null) return false;
-        desc = mgr.GetComponentInParent<VRCAvatarDescriptor>();
+        desc = FindParentAvatarDescriptorIncludingInactive(mgr);
         return desc != null;
     }
 
@@ -1024,255 +1122,33 @@ public class PshaVRCEmoteInstallerEditor : Editor
 #endif
 
 
+
     private void DrawCombinedPreview(PshaVRCEmoteInstaller current)
     {
-
-        var descriptor = current.GetComponentInParent<VRCAvatarDescriptor>();
-        if (descriptor == null)
-        {
-            EditorGUILayout.HelpBox(Tr("psha.no_descriptor_short", "Could not find a parent VRCAvatarDescriptor."), MessageType.Info);
+        if (!TryBuildPreviewData(current, out var data))
             return;
-        }
 
-        var rootMenu = descriptor.expressionsMenu;
-        if (rootMenu == null)
-        {
-            EditorGUILayout.HelpBox(Tr("psha.menu_empty", "The avatar Expressions Menu is empty."), MessageType.Info);
-            return;
-        }
+        string headerMessage = data.previewIsAuto
+            ? Trf("psha.preview_auto_detected", "Auto detected emote menu for preview: {0}", data.previewMenu.name)
+            : Trf("psha.preview_menu", "Preview menu: {0}", data.previewMenu.name);
 
+        EditorGUILayout.HelpBox(headerMessage, MessageType.None);
+        DrawPreviewModeToolbar(alignRight: true);
+        EditorGUILayout.Space(4);
 
-        var explicitMenu = ResolveMenuFromGuidRef(_targetMenuProp);
-        var autoEmoteMenu = FindEmoteMenu(rootMenu);
-
-
-        // auto detect warning: only when we actually need auto detect (explicitMenu is empty),
-        // and only once per editor session per avatar descriptor.
-        if (explicitMenu == null && autoEmoteMenu == null)
-        {
-            string key = kSessionWarnKey_AutoDetectMenu + descriptor.GetInstanceID();
-            if (!SessionState.GetBool(key, false))
-            {
-                Debug.LogWarning(
-                    "[PshaVRCEmoteInstallerPass] Failed to auto detect the VRCEmote menu. " +
-                    "If targetMenu/path cannot be resolved, menu patching may be skipped."
-                );
-                SessionState.SetBool(key, true);
-            }
-        }
-
-
-        VRCExpressionsMenu previewMenu = explicitMenu ?? autoEmoteMenu;
-        if (previewMenu == null)
-        {
-            if (explicitMenu == null)
-            {
-                EditorGUILayout.HelpBox(
-                    Tr("psha.preview_no_menu", "Target VRC emote menu is empty, and the emote menu could not be auto detected on the avatar."),
-                    MessageType.Info
-                );
-            }
-            else
-            {
-                EditorGUILayout.HelpBox(
-                    Tr("psha.preview_target_no_controls", "The target VRC emote menu has no controls."),
-                    MessageType.Warning
-                );
-            }
-            return;
-        }
-
-        bool previewIsAuto = (explicitMenu == null);
-
-        if (previewIsAuto)
-        {
-            EditorGUILayout.HelpBox(
-                Trf("psha.preview_auto_detected", "Auto detected emote menu for preview: {0}", previewMenu.name),
-                MessageType.None
-            );
-        }
+        if (s_previewMode == PreviewMode.Radial)
+            DrawRadialPreview(current, data);
         else
-        {
-            EditorGUILayout.HelpBox(
-                Trf("psha.preview_menu", "Preview menu: {0}", previewMenu.name),
-                MessageType.None
-            );
-        }
-
-        if (previewMenu.controls == null || previewMenu.controls.Count == 0)
-        {
-            EditorGUILayout.HelpBox(Tr("psha.preview_menu_no_controls", "The preview menu has no controls."), MessageType.Warning);
-            return;
-        }
-
-
-
-        var finalList = CollectFinalSlotWinners(descriptor);
-        if (finalList.Count == 0)
-        {
-            EditorGUILayout.HelpBox(
-                Tr("psha.preview_no_installers", "There are no active PshaVRCEmoteInstaller components, so there is nothing to preview."),
-                MessageType.Info
-            );
-            return;
-        }
-
-        var affectingManagers = new List<PshaVRCEmoteInstaller>();
-        foreach (var m in finalList)
-        {
-            if (m == null) continue;
-
-            var targetMenu = ResolveTargetMenuForPreview(m, rootMenu, autoEmoteMenu);
-            if (targetMenu == previewMenu)
-            {
-                affectingManagers.Add(m);
-            }
-        }
-
-        int controlCount = previewMenu.controls.Count;
-
-
-        var beforeNames = new string[controlCount];
-        var beforeTypes = new VRCExpressionsMenu.Control.ControlType[controlCount];
-        var afterNames = new string[controlCount];
-        var afterTypes = new VRCExpressionsMenu.Control.ControlType[controlCount];
-        var finalManager = new PshaVRCEmoteInstaller[controlCount];
-        var changed = new bool[controlCount];
-
-
-        for (int i = 0; i < controlCount; i++)
-        {
-            var ctrl = previewMenu.controls[i];
-            beforeNames[i] = ctrl != null ? ctrl.name : "";
-            beforeTypes[i] = ctrl != null ? ctrl.type : VRCExpressionsMenu.Control.ControlType.Button;
-
-            afterNames[i] = beforeNames[i];
-            afterTypes[i] = beforeTypes[i];
-            finalManager[i] = null;
-            changed[i] = false;
-        }
-
-
-        for (int i = affectingManagers.Count - 1; i >= 0; i--)
-        {
-            var m = affectingManagers[i];
-            if (m == null) continue;
-            if (controlCount == 0) break;
-
-            int slot = Mathf.Clamp(m.slotIndex, 1, 8);
-            int idx = FindEmoteControlIndex(previewMenu, slot);
-            if (idx < 0) continue;
-
-            bool didChange = false;
-
-
-            if (!string.IsNullOrEmpty(m.emoteName))
-            {
-                var raw = m.emoteName;
-                var processed = raw.Replace("<br>", " ");
-                afterNames[idx] = processed;
-                didChange = true;
-            }
-
-
-            if (m.controlType != PshaVRCEmoteInstaller.EmoteControlType.None)
-            {
-                afterTypes[idx] = (m.controlType == PshaVRCEmoteInstaller.EmoteControlType.Toggle)
-                    ? VRCExpressionsMenu.Control.ControlType.Toggle
-                    : VRCExpressionsMenu.Control.ControlType.Button;
-                didChange = true;
-            }
-
-            if (didChange)
-            {
-                finalManager[idx] = m;
-                changed[idx] = true;
-            }
-        }
-
-
-
-        float noWidth = 25f;
-        float beforeNameWidth = 60f;
-        float afterNameWidth = 110f;
-        float typeWidth = 60f;
-
-
-        var nameColStyle = new GUIStyle(EditorStyles.label)
-        {
-            richText = true,
-            wordWrap = false,
-            clipping = TextClipping.Clip
-        };
-
-        EditorGUILayout.BeginHorizontal();
-        EditorGUILayout.LabelField(Tr("psha.preview_no", "No."), GUILayout.Width(noWidth));
-        EditorGUILayout.LabelField(Tr("psha.preview_name_before", "Name →→"), GUILayout.Width(beforeNameWidth));
-        EditorGUILayout.LabelField(Tr("psha.preview_name_after", "Name (After)"), GUILayout.Width(afterNameWidth));
-        EditorGUILayout.LabelField(Tr("psha.preview_type_before", "Type →→"), GUILayout.Width(typeWidth));
-        EditorGUILayout.LabelField(Tr("psha.preview_type_after", "Type"), GUILayout.Width(typeWidth));
-        EditorGUILayout.EndHorizontal();
-
-
-        for (int i = 0; i < controlCount; i++)
-        {
-            var ctrl = previewMenu.controls[i];
-            if (ctrl == null) continue;
-
-            int no = i + 1;
-
-            string beforeName = beforeNames[i];
-            string beforeType = beforeTypes[i].ToString();
-
-
-            string afterNameStr = changed[i] ? afterNames[i] : "-";
-            string afterTypeStr = changed[i] ? afterTypes[i].ToString() : "-";
-
-            bool ownedByCurrent = (finalManager[i] == current);
-
-            EditorGUILayout.BeginHorizontal();
-
-            EditorGUILayout.LabelField(no.ToString(), GUILayout.Width(noWidth));
-            EditorGUILayout.LabelField(beforeName, nameColStyle, GUILayout.Width(beforeNameWidth));
-
-            if (ownedByCurrent && changed[i])
-            {
-                var boldName = new GUIStyle(nameColStyle)
-                {
-                    fontStyle = FontStyle.Bold
-                };
-                EditorGUILayout.LabelField(afterNameStr, boldName, GUILayout.Width(afterNameWidth));
-            }
-            else
-            {
-                EditorGUILayout.LabelField(afterNameStr, nameColStyle, GUILayout.Width(afterNameWidth));
-            }
-
-            EditorGUILayout.LabelField(beforeType, GUILayout.Width(typeWidth));
-
-            if (ownedByCurrent && changed[i])
-            {
-                var bold = new GUIStyle(EditorStyles.label)
-                {
-                    fontStyle = FontStyle.Bold
-                };
-                EditorGUILayout.LabelField(afterTypeStr, bold, GUILayout.Width(typeWidth));
-            }
-            else
-            {
-                EditorGUILayout.LabelField(afterTypeStr, GUILayout.Width(typeWidth));
-            }
-
-            EditorGUILayout.EndHorizontal();
-        }
+            DrawListPreview(data, current);
     }
+
 
 
     private void SetupVRCEmote(PshaVRCEmoteInstaller mgr)
     {
         if (mgr == null) return;
 
-        var descriptor = mgr.GetComponentInParent<VRCAvatarDescriptor>();
+        var descriptor = FindParentAvatarDescriptorIncludingInactive(mgr);
         if (descriptor == null)
         {
             EditorUtility.DisplayDialog(
@@ -1436,7 +1312,7 @@ public class PshaVRCEmoteInstallerEditor : Editor
 
 
 
-        if (mgr.useMergeMEFxLayer &&
+        if (ShouldShowBuildObjectNameField(mgr) &&
             string.IsNullOrWhiteSpace(mgr.objectName) &&
             mgr.gameObject != null)
         {
@@ -1448,23 +1324,12 @@ public class PshaVRCEmoteInstallerEditor : Editor
     }
 
 
-    private static string GetPlainObjectNameFromEmoteName(string emoteName)
-    {
-        if (string.IsNullOrEmpty(emoteName)) return string.Empty;
-        var plain = Regex.Replace(emoteName, @"<\s*br\s*/?\s*>", string.Empty, RegexOptions.IgnoreCase);
-        plain = Regex.Replace(plain, @"<[^>]+>", string.Empty);
-        plain = plain.Replace("\r", string.Empty).Replace("\n", string.Empty);
-        plain = plain.Trim();
-
-        return plain;
-    }
-
 
     private void UpdateTargetMenuPathFromCurrentDescriptor(PshaVRCEmoteInstaller mgr)
     {
         if (mgr == null || _targetMenuPathProp == null || _targetMenuProp == null) return;
 
-        var descriptor = mgr.GetComponentInParent<VRCAvatarDescriptor>();
+        var descriptor = FindParentAvatarDescriptorIncludingInactive(mgr);
         var rootMenu = descriptor != null ? descriptor.expressionsMenu : null;
 
         var targetMenu = ResolveMenuFromGuidRef(_targetMenuProp);
@@ -2000,6 +1865,733 @@ public class PshaVRCEmoteInstallerEditor : Editor
 
     private const string EmoteParamName = "VRCEmote";
 
+
+    private void ObservePreviewSlotSelection()
+    {
+        if (_slotIndexProp == null) return;
+
+        int currentSlot = Mathf.Clamp(_slotIndexProp.intValue, 1, 8);
+        if (_lastObservedPreviewSlot < 1)
+        {
+            _lastObservedPreviewSlot = currentSlot;
+            return;
+        }
+
+        if (_lastObservedPreviewSlot != currentSlot)
+        {
+            QueuePreviewSlotPulse(currentSlot);
+            _lastObservedPreviewSlot = currentSlot;
+        }
+    }
+
+    private void QueuePreviewSlotPulse(int slot)
+    {
+        _previewPulseSlot = Mathf.Clamp(slot, 1, 8);
+        _previewPulseStartTime = EditorApplication.timeSinceStartup;
+        Repaint();
+    }
+
+    private float GetPreviewSlotPulse(int slot)
+    {
+        if (slot != _previewPulseSlot) return 0f;
+
+        double now = EditorApplication.timeSinceStartup;
+        double elapsed = now - _previewPulseStartTime;
+
+        if (elapsed < 0d || elapsed >= PreviewPulseDuration)
+            return 0f;
+
+        float t = (float)(elapsed / PreviewPulseDuration);
+        float pulse = Mathf.Sin(t * Mathf.PI);
+        Repaint();
+        return pulse;
+    }
+
+    private static void EnsurePreviewModeLoaded()
+    {
+        if (s_previewModeLoaded) return;
+        s_previewMode = LoadPreviewMode();
+        s_previewModeLoaded = true;
+    }
+
+    private static PreviewMode LoadPreviewMode()
+    {
+        int raw = EditorPrefs.GetInt(PrefKey_PreviewMode, (int)PreviewMode.Radial);
+        return raw == (int)PreviewMode.List ? PreviewMode.List : PreviewMode.Radial;
+    }
+
+    private static void SavePreviewMode(PreviewMode mode)
+    {
+        s_previewMode = mode;
+        s_previewModeLoaded = true;
+        EditorPrefs.SetInt(PrefKey_PreviewMode, (int)mode);
+    }
+
+    private void DrawPreviewModeToolbar(bool alignRight = true)
+    {
+        EnsurePreviewModeLoaded();
+
+        using (new EditorGUILayout.HorizontalScope())
+        {
+            if (alignRight)
+                GUILayout.FlexibleSpace();
+
+            Color oldBg = GUI.backgroundColor;
+
+            bool radialSelected = s_previewMode == PreviewMode.Radial;
+            GUI.backgroundColor = radialSelected ? new Color(0.30f, 0.54f, 0.58f, 1f) : oldBg;
+            bool radialToggle = GUILayout.Toggle(
+                radialSelected,
+                new GUIContent("◎", Tr("psha.preview_mode_radial", "Radial Preview")),
+                EditorStyles.miniButtonLeft,
+                GUILayout.Width(28f),
+                GUILayout.Height(20f)
+            );
+
+            GUI.backgroundColor = !radialSelected ? new Color(0.30f, 0.54f, 0.58f, 1f) : oldBg;
+            bool listToggle = GUILayout.Toggle(
+                !radialSelected,
+                new GUIContent("☰", Tr("psha.preview_mode_list", "List Preview")),
+                EditorStyles.miniButtonRight,
+                GUILayout.Width(28f),
+                GUILayout.Height(20f)
+            );
+
+            GUI.backgroundColor = oldBg;
+
+            if (radialToggle && s_previewMode != PreviewMode.Radial)
+                SavePreviewMode(PreviewMode.Radial);
+            else if (listToggle && s_previewMode != PreviewMode.List)
+                SavePreviewMode(PreviewMode.List);
+        }
+    }
+
+    private bool TryBuildPreviewData(PshaVRCEmoteInstaller current, out PreviewData data)
+    {
+        data = default;
+
+        var descriptor = FindParentAvatarDescriptorIncludingInactive(current);
+        if (descriptor == null)
+        {
+            EditorGUILayout.HelpBox(Tr("psha.no_descriptor_short", "Could not find a parent VRCAvatarDescriptor."), MessageType.Info);
+            return false;
+        }
+
+        var rootMenu = descriptor.expressionsMenu;
+        if (rootMenu == null)
+        {
+            EditorGUILayout.HelpBox(Tr("psha.menu_empty", "The avatar Expressions Menu is empty."), MessageType.Info);
+            return false;
+        }
+
+        var explicitMenu = ResolveMenuFromGuidRef(_targetMenuProp);
+        var autoEmoteMenu = FindEmoteMenu(rootMenu);
+
+        if (explicitMenu == null && autoEmoteMenu == null)
+        {
+            string key = kSessionWarnKey_AutoDetectMenu + descriptor.GetInstanceID();
+            if (!SessionState.GetBool(key, false))
+            {
+                Debug.LogWarning(
+                    "[PshaVRCEmoteInstallerPass] Failed to auto detect the VRCEmote menu. " +
+                    "If targetMenu/path cannot be resolved, menu patching may be skipped."
+                );
+                SessionState.SetBool(key, true);
+            }
+        }
+
+        VRCExpressionsMenu previewMenu = explicitMenu ?? autoEmoteMenu;
+        if (previewMenu == null)
+        {
+            if (explicitMenu == null)
+            {
+                EditorGUILayout.HelpBox(
+                    Tr("psha.preview_no_menu", "Target VRC emote menu is empty, and the emote menu could not be auto detected on the avatar."),
+                    MessageType.Info
+                );
+            }
+            else
+            {
+                EditorGUILayout.HelpBox(
+                    Tr("psha.preview_target_no_controls", "The target VRC emote menu has no controls."),
+                    MessageType.Warning
+                );
+            }
+            return false;
+        }
+
+        if (previewMenu.controls == null || previewMenu.controls.Count == 0)
+        {
+            EditorGUILayout.HelpBox(Tr("psha.preview_menu_no_controls", "The preview menu has no controls."), MessageType.Warning);
+            return false;
+        }
+
+        var finalList = CollectFinalSlotWinners(descriptor);
+        if (finalList.Count == 0)
+        {
+            EditorGUILayout.HelpBox(
+                Tr("psha.preview_no_installers", "There are no active PshaVRCEmoteInstaller components, so there is nothing to preview."),
+                MessageType.Info
+            );
+            return false;
+        }
+
+        var affectingManagers = new List<PshaVRCEmoteInstaller>();
+        foreach (var m in finalList)
+        {
+            if (m == null) continue;
+
+            var targetMenu = ResolveTargetMenuForPreview(m, rootMenu, autoEmoteMenu);
+            if (targetMenu == previewMenu)
+                affectingManagers.Add(m);
+        }
+
+        var slots = new PreviewSlotData[8];
+
+        for (int slot = 1; slot <= 8; slot++)
+        {
+            int idx = FindEmoteControlIndex(previewMenu, slot);
+            var ctrl = (idx >= 0 && idx < previewMenu.controls.Count) ? previewMenu.controls[idx] : null;
+
+            slots[slot - 1] = new PreviewSlotData
+            {
+                slot = slot,
+                controlIndex = idx,
+                beforeName = ctrl != null ? NormalizePreviewName(ctrl.name) : string.Empty,
+                beforeType = ctrl != null ? ctrl.type : VRCExpressionsMenu.Control.ControlType.Button,
+                afterName = ctrl != null ? NormalizePreviewName(ctrl.name) : string.Empty,
+                afterType = ctrl != null ? ctrl.type : VRCExpressionsMenu.Control.ControlType.Button,
+                changed = false,
+                isWinnerForCurrent = false,
+                isSelectedByCurrent = current != null && Mathf.Clamp(current.slotIndex, 1, 8) == slot,
+                icon = null,
+                finalManager = null,
+            };
+        }
+
+        for (int i = affectingManagers.Count - 1; i >= 0; i--)
+        {
+            var m = affectingManagers[i];
+            if (m == null) continue;
+
+            int slot = Mathf.Clamp(m.slotIndex, 1, 8);
+            int s = slot - 1;
+
+            bool didChange = false;
+            if (!string.IsNullOrWhiteSpace(m.emoteName))
+            {
+                slots[s].afterName = NormalizePreviewName(m.emoteName);
+                didChange = true;
+            }
+
+            if (m.controlType != PshaVRCEmoteInstaller.EmoteControlType.None)
+            {
+                slots[s].afterType = (m.controlType == PshaVRCEmoteInstaller.EmoteControlType.Toggle)
+                    ? VRCExpressionsMenu.Control.ControlType.Toggle
+                    : VRCExpressionsMenu.Control.ControlType.Button;
+                didChange = true;
+            }
+
+            if (m.menuIcon != null)
+            {
+                slots[s].icon = m.menuIcon;
+                didChange = true;
+            }
+
+            if (didChange)
+            {
+                slots[s].changed = true;
+                slots[s].finalManager = m;
+                slots[s].isWinnerForCurrent = ReferenceEquals(m, current);
+            }
+        }
+
+        for (int slot = 1; slot <= 8; slot++)
+        {
+            slots[slot - 1].isSelectedByCurrent = current != null && Mathf.Clamp(current.slotIndex, 1, 8) == slot;
+        }
+
+        data = new PreviewData
+        {
+            previewMenu = previewMenu,
+            previewIsAuto = explicitMenu == null,
+            slots = slots,
+        };
+        return true;
+    }
+
+    private static string NormalizePreviewName(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return string.Empty;
+
+        return value
+            .Replace("\r\n", "\n")
+            .Replace("\r", "\n")
+            .Trim();
+    }
+
+    private void DrawListPreview(PreviewData data, PshaVRCEmoteInstaller current)
+    {
+        float noWidth = 25f;
+        float beforeNameWidth = 72f;
+        float afterNameWidth = 118f;
+        float typeWidth = 68f;
+
+        var nameColStyle = new GUIStyle(EditorStyles.label)
+        {
+            richText = true,
+            wordWrap = false,
+            clipping = TextClipping.Clip
+        };
+
+        EditorGUILayout.BeginHorizontal();
+        EditorGUILayout.LabelField(Tr("psha.preview_no", "No."), GUILayout.Width(noWidth));
+        EditorGUILayout.LabelField(Tr("psha.preview_name_before", "Name →→"), GUILayout.Width(beforeNameWidth));
+        EditorGUILayout.LabelField(Tr("psha.preview_name_after", "Name (After)"), GUILayout.Width(afterNameWidth));
+        EditorGUILayout.LabelField(Tr("psha.preview_type_before", "Type →→"), GUILayout.Width(typeWidth));
+        EditorGUILayout.LabelField(Tr("psha.preview_type_after", "Type"), GUILayout.Width(typeWidth));
+        EditorGUILayout.EndHorizontal();
+
+        for (int i = 0; i < data.slots.Length; i++)
+        {
+            var slot = data.slots[i];
+
+            string beforeName = PrepareSingleLinePreviewLabel(slot.beforeName);
+            string afterName = slot.changed ? PrepareSingleLinePreviewLabel(slot.afterName) : "-";
+            string beforeType = slot.beforeType.ToString();
+            string afterType = slot.changed ? slot.afterType.ToString() : "-";
+
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField(slot.slot.ToString(), GUILayout.Width(noWidth));
+            EditorGUILayout.LabelField(beforeName, nameColStyle, GUILayout.Width(beforeNameWidth));
+
+            if (slot.isWinnerForCurrent && slot.changed)
+            {
+                var boldName = new GUIStyle(nameColStyle) { fontStyle = FontStyle.Bold };
+                EditorGUILayout.LabelField(afterName, boldName, GUILayout.Width(afterNameWidth));
+            }
+            else
+            {
+                EditorGUILayout.LabelField(afterName, nameColStyle, GUILayout.Width(afterNameWidth));
+            }
+
+            EditorGUILayout.LabelField(beforeType, GUILayout.Width(typeWidth));
+
+            if (slot.isWinnerForCurrent && slot.changed)
+            {
+                var bold = new GUIStyle(EditorStyles.label) { fontStyle = FontStyle.Bold };
+                EditorGUILayout.LabelField(afterType, bold, GUILayout.Width(typeWidth));
+            }
+            else
+            {
+                EditorGUILayout.LabelField(afterType, GUILayout.Width(typeWidth));
+            }
+
+            EditorGUILayout.EndHorizontal();
+        }
+    }
+
+    private void DrawRadialPreview(PshaVRCEmoteInstaller current, PreviewData data)
+    {
+        var bg = LoadPreviewTexture(ref s_previewRadialBackground, "Preview_slot_bg");
+        var centerTex = LoadPreviewTexture(ref s_previewRadialCenter, "Radial_center");
+        var backTex = LoadPreviewTexture(ref s_previewRadialBackIcon, "Radial_back");
+
+        float size = Mathf.Clamp(EditorGUIUtility.currentViewWidth - 70f, 220f, 360f);
+        Rect rect;
+        using (new EditorGUILayout.HorizontalScope())
+        {
+            GUILayout.FlexibleSpace();
+            rect = GUILayoutUtility.GetRect(size, size, GUILayout.Width(size), GUILayout.Height(size));
+            GUILayout.FlexibleSpace();
+        }
+
+        if (bg != null)
+            GUI.DrawTexture(rect, bg, ScaleMode.ScaleToFit, true);
+        else
+            EditorGUI.DrawRect(rect, new Color(0.10f, 0.18f, 0.19f, 1f));
+
+        Vector2 center = rect.center;
+        float outerRadius = rect.width * 0.485f;
+        float visualOuterRadius = outerRadius * 0.972f;
+        float deadRadius = rect.width * 0.18f;
+        float contentRadius = rect.width * 0.315f;
+        float backContentRadius = rect.width * 0.325f;
+
+        int hoveredSegment = GetHoveredRadialSegment(rect, center, outerRadius, deadRadius);
+
+        Handles.BeginGUI();
+
+        Color separatorColor = new Color(0.10f, 0.55f, 0.60f, 0.70f);
+        for (int boundary = 0; boundary < 9; boundary++)
+        {
+            float boundaryAngle = 110f - (boundary * 40f);
+            Vector2 innerPoint = AngleToGuiPoint(center, deadRadius, boundaryAngle);
+            Vector2 outerPoint = AngleToGuiPoint(center, visualOuterRadius, boundaryAngle);
+            Handles.color = separatorColor;
+            Handles.DrawAAPolyLine(1.6f, new Vector3(innerPoint.x, innerPoint.y, 0f), new Vector3(outerPoint.x, outerPoint.y, 0f));
+        }
+
+        if (hoveredSegment == 0)
+        {
+            DrawRadialSectorOverlay(
+                center,
+                visualOuterRadius * 1.01f,
+                deadRadius,
+                GetSegmentCenterAngle(0),
+                40f,
+                new Color(0.55f, 0.95f, 1f, 0.07f)
+            );
+        }
+
+        for (int i = 0; i < data.slots.Length; i++)
+        {
+            var slot = data.slots[i];
+            bool hovered = hoveredSegment == slot.slot;
+            bool selected = slot.isSelectedByCurrent;
+            float pulse = GetPreviewSlotPulse(slot.slot);
+
+            float overlayAlpha = 0f;
+            if (hovered) overlayAlpha += 0.07f;
+            if (selected) overlayAlpha += 0.12f;
+            overlayAlpha += pulse * 0.18f;
+
+            float radiusScale = 1f + (selected ? 0.015f : 0f) + (hovered ? 0.01f : 0f) + (pulse * 0.05f);
+
+            if (overlayAlpha > 0.001f)
+            {
+                DrawRadialSectorOverlay(
+                    center,
+                    visualOuterRadius * radiusScale,
+                    deadRadius,
+                    GetSegmentCenterAngle(slot.slot),
+                    40f,
+                    new Color(0.55f, 0.95f, 1f, Mathf.Clamp01(overlayAlpha))
+                );
+            }
+        }
+
+        Handles.EndGUI();
+
+        var nameStyle = new GUIStyle(EditorStyles.label)
+        {
+            alignment = TextAnchor.UpperCenter,
+            richText = true,
+            wordWrap = true,
+            clipping = TextClipping.Overflow,
+            normal = { textColor = new Color(0.90f, 0.96f, 0.96f, 1f) },
+            fontSize = Mathf.Clamp(Mathf.RoundToInt(rect.width * 0.038f), 10, 13)
+        };
+
+        var iconNameStyle = new GUIStyle(nameStyle)
+        {
+            fontSize = Mathf.Clamp(Mathf.RoundToInt(rect.width * 0.032f), 9, 12)
+        };
+
+        if (backTex != null)
+        {
+            Vector2 backCenter = AngleToGuiPoint(center, backContentRadius, GetSegmentCenterAngle(0));
+            float backSize = rect.width * 0.10f;
+            Rect backRect = new Rect(
+                backCenter.x - backSize * 0.5f,
+                backCenter.y - backSize * 0.75f,
+                backSize,
+                backSize
+            );
+            GUI.DrawTexture(backRect, backTex, ScaleMode.ScaleToFit, true);
+
+            Rect backLabelRect = new Rect(
+                backCenter.x - rect.width * 0.10f,
+                backRect.yMax - rect.width * 0.005f,
+                rect.width * 0.20f,
+                rect.width * 0.06f
+            );
+            GUI.Label(backLabelRect, "Back", iconNameStyle);
+        }
+
+        if (centerTex != null)
+        {
+            float centerSize = rect.width * 0.24f;
+            Rect centerRect = new Rect(center.x - centerSize * 0.5f, center.y - centerSize * 0.5f, centerSize, centerSize);
+            GUI.DrawTexture(centerRect, centerTex, ScaleMode.ScaleToFit, true);
+        }
+
+        for (int i = 0; i < data.slots.Length; i++)
+        {
+            var slot = data.slots[i];
+            bool hovered = hoveredSegment == slot.slot;
+            bool selected = slot.isSelectedByCurrent;
+            float pulse = GetPreviewSlotPulse(slot.slot);
+            float contentScale = 1f + (selected ? 0.02f : 0f) + (hovered ? 0.01f : 0f) + (pulse * 0.08f);
+
+            float centerAngle = GetSegmentCenterAngle(slot.slot);
+            Vector2 contentCenter = AngleToGuiPoint(center, contentRadius * contentScale, centerAngle);
+
+            Color oldColor = GUI.color;
+            float iconSize = rect.width * 0.15f * contentScale;
+            Rect iconRect = new Rect(
+                contentCenter.x - iconSize * 0.5f,
+                contentCenter.y - iconSize * 0.60f,
+                iconSize,
+                iconSize
+            );
+
+            Rect iconLabelRect = new Rect(
+                contentCenter.x - rect.width * 0.17f,
+                iconRect.yMax - rect.width * 0.010f,
+                rect.width * 0.34f,
+                rect.width * 0.22f
+            );
+
+            Rect noIconLabelRect = new Rect(
+                contentCenter.x - rect.width * 0.17f,
+                contentCenter.y - rect.width * 0.035f,
+                rect.width * 0.34f,
+                rect.width * 0.22f
+            );
+
+            if (slot.icon != null)
+            {
+                GUI.color = new Color(1f, 1f, 1f, selected ? 1f : 0.96f);
+                GUI.DrawTexture(iconRect, slot.icon, ScaleMode.ScaleToFit, true);
+                GUI.Label(iconLabelRect, PrepareRadialSlotLabel(slot.afterName, slot.changed ? null : slot.beforeName), iconNameStyle);
+            }
+            else
+            {
+                string noIconLabel = PrepareRadialSlotLabel(slot.changed ? slot.afterName : slot.beforeName, null);
+                GUI.Label(noIconLabelRect, noIconLabel, nameStyle);
+            }
+            GUI.color = oldColor;
+        }
+
+        HandleRadialSlotSelection(rect, center, outerRadius, deadRadius, current);
+
+        int infoSlot = hoveredSegment >= 1 ? hoveredSegment : Mathf.Clamp(_slotIndexProp.intValue, 1, 8);
+        DrawRadialPreviewInfo(data.slots[Mathf.Clamp(infoSlot - 1, 0, data.slots.Length - 1)]);
+    }
+
+    private void DrawRadialPreviewInfo(PreviewSlotData slot)
+    {
+        using (new EditorGUILayout.VerticalScope("box"))
+        {
+            string finalName = !string.IsNullOrEmpty(slot.afterName) ? slot.afterName : slot.beforeName;
+            string singleLineName = PrepareSingleLinePreviewLabel(finalName);
+            if (string.IsNullOrEmpty(singleLineName)) singleLineName = "-";
+
+            string finalType = slot.changed ? slot.afterType.ToString() : slot.beforeType.ToString();
+
+            var keyStyle = new GUIStyle(EditorStyles.label)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                fontStyle = FontStyle.Bold,
+                fontSize = EditorStyles.label.fontSize
+            };
+
+            var valueStyle = new GUIStyle(EditorStyles.label)
+            {
+                richText = true,
+                wordWrap = false,
+                clipping = TextClipping.Clip,
+                alignment = TextAnchor.MiddleLeft,
+                fontSize = EditorStyles.label.fontSize
+            };
+
+            float keyWidth = Mathf.Ceil(Mathf.Max(
+                keyStyle.CalcSize(new GUIContent(Tr("psha.slot", "Slot"))).x,
+                keyStyle.CalcSize(new GUIContent(Tr("psha.type", "Type"))).x,
+                keyStyle.CalcSize(new GUIContent(Tr("psha.name", "Name"))).x
+            )) + 8f;
+
+            float rowHeight = EditorGUIUtility.singleLineHeight + 2f;
+            float pairGap = 12f;
+            float slotValueWidth = Mathf.Max(42f, valueStyle.CalcSize(new GUIContent($"[{slot.slot}]")).x + 6f);
+
+            Rect row1 = EditorGUILayout.GetControlRect(false, rowHeight);
+            Rect slotKeyRect = new Rect(row1.x, row1.y, keyWidth, rowHeight);
+            Rect slotValueRect = new Rect(slotKeyRect.xMax, row1.y, slotValueWidth, rowHeight);
+            Rect typeKeyRect = new Rect(slotValueRect.xMax + pairGap, row1.y, keyWidth, rowHeight);
+            Rect typeValueRect = new Rect(typeKeyRect.xMax, row1.y, row1.xMax - typeKeyRect.xMax, rowHeight);
+
+            EditorGUI.LabelField(slotKeyRect, Tr("psha.slot", "Slot"), keyStyle);
+            EditorGUI.LabelField(slotValueRect, $"[{slot.slot}]", valueStyle);
+            EditorGUI.LabelField(typeKeyRect, Tr("psha.type", "Type"), keyStyle);
+            EditorGUI.LabelField(typeValueRect, $"[{finalType}]", valueStyle);
+
+            Rect row2 = EditorGUILayout.GetControlRect(false, rowHeight);
+            Rect nameKeyRect = new Rect(row2.x, row2.y, keyWidth, rowHeight);
+            Rect nameValueRect = new Rect(nameKeyRect.xMax, row2.y, row2.xMax - nameKeyRect.xMax, rowHeight);
+
+            EditorGUI.LabelField(nameKeyRect, Tr("psha.name", "Name"), keyStyle);
+            EditorGUI.LabelField(nameValueRect, singleLineName, valueStyle);
+        }
+    }
+
+    private void HandleRadialSlotSelection(Rect rect, Vector2 center, float outerRadius, float deadRadius, PshaVRCEmoteInstaller current)
+    {
+        var evt = Event.current;
+        if (evt == null) return;
+
+        if (evt.type != EventType.MouseDown || evt.button != 0)
+            return;
+
+        if (!rect.Contains(evt.mousePosition))
+            return;
+
+        int clickedSlot = GetRadialSegmentFromPoint(evt.mousePosition, center, outerRadius, deadRadius);
+        if (clickedSlot < 1 || clickedSlot > 8 || current == null)
+            return;
+
+        bool slotChanged = _slotIndexProp != null && _slotIndexProp.intValue != clickedSlot;
+        if (slotChanged)
+        {
+            Undo.RecordObject(current, Tr("psha.undo_change_slot", "Change VRC Emote Slot"));
+            _slotIndexProp.intValue = clickedSlot;
+            serializedObject.ApplyModifiedProperties();
+            _lastObservedPreviewSlot = clickedSlot;
+            GUI.changed = true;
+        }
+
+        QueuePreviewSlotPulse(clickedSlot);
+
+        evt.Use();
+        GUIUtility.ExitGUI();
+    }
+
+    private static int GetHoveredRadialSegment(Rect rect, Vector2 center, float outerRadius, float deadRadius)
+    {
+        var evt = Event.current;
+        if (evt == null) return -1;
+        if (!rect.Contains(evt.mousePosition)) return -1;
+
+        float hoverOuterRadius = outerRadius * 1.05f;
+        float hoverInnerRadius = deadRadius * 0.72f;
+        return GetRadialSegmentFromPoint(evt.mousePosition, center, hoverOuterRadius, hoverInnerRadius, 24f);
+    }
+
+    private static int GetRadialSegmentFromPoint(Vector2 point, Vector2 center, float outerRadius, float deadRadius)
+    {
+        return GetRadialSegmentFromPoint(point, center, outerRadius, deadRadius, 20f);
+    }
+
+    private static int GetRadialSegmentFromPoint(Vector2 point, Vector2 center, float outerRadius, float deadRadius, float halfSweepAngle)
+    {
+        Vector2 delta = point - center;
+        float dist = delta.magnitude;
+        if (dist < deadRadius || dist > outerRadius)
+            return -1;
+
+        float angle = Mathf.Atan2(-delta.y, delta.x) * Mathf.Rad2Deg;
+        if (angle < 0f) angle += 360f;
+
+        int bestSegment = -1;
+        float bestDelta = float.MaxValue;
+
+        for (int segment = 0; segment <= 8; segment++)
+        {
+            float centerAngle = GetSegmentCenterAngle(segment);
+            float diff = Mathf.Abs(Mathf.DeltaAngle(angle, centerAngle));
+            if (diff <= halfSweepAngle && diff < bestDelta)
+            {
+                bestDelta = diff;
+                bestSegment = segment;
+            }
+        }
+
+        return bestSegment;
+    }
+
+    private static float GetSegmentCenterAngle(int segment)
+    {
+        if (segment <= 0) return 90f;
+        return 50f - ((Mathf.Clamp(segment, 1, 8) - 1) * 40f);
+    }
+
+    private static Vector2 AngleToGuiPoint(Vector2 center, float radius, float angleDeg)
+    {
+        float rad = angleDeg * Mathf.Deg2Rad;
+        return new Vector2(
+            center.x + Mathf.Cos(rad) * radius,
+            center.y - Mathf.Sin(rad) * radius
+        );
+    }
+
+    private static void DrawRadialSectorOverlay(Vector2 center, float outerRadius, float innerRadius, float centerAngle, float sweepAngle, Color color)
+    {
+        const int ArcSteps = 18;
+        var points = new Vector3[ArcSteps + 4];
+        points[0] = new Vector3(center.x, center.y, 0f);
+
+        float startAngle = centerAngle + (sweepAngle * 0.5f);
+        float step = sweepAngle / ArcSteps;
+        for (int i = 0; i <= ArcSteps; i++)
+        {
+            float angle = startAngle - (step * i);
+            Vector2 p = AngleToGuiPoint(center, outerRadius, angle);
+            points[i + 1] = new Vector3(p.x, p.y, 0f);
+        }
+
+        points[ArcSteps + 2] = new Vector3(center.x, center.y, 0f);
+        points[ArcSteps + 3] = new Vector3(center.x, center.y, 0f);
+
+        Handles.color = color;
+        Handles.DrawAAConvexPolygon(points);
+    }
+
+    private static string PrepareSingleLinePreviewLabel(string text)
+    {
+        text = NormalizePreviewRichText(text, preserveLineBreaks: false);
+        if (string.IsNullOrWhiteSpace(text))
+            return "-";
+
+        return text;
+    }
+
+    private static string PrepareMultilinePreviewLabel(string text)
+    {
+        text = NormalizePreviewRichText(text, preserveLineBreaks: true);
+        if (string.IsNullOrWhiteSpace(text))
+            return "-";
+
+        return text;
+    }
+
+    private static string PrepareRadialSlotLabel(string primary, string fallback)
+    {
+        string text = !string.IsNullOrWhiteSpace(primary) ? primary : fallback;
+        return PrepareMultilinePreviewLabel(text);
+    }
+
+    private static string NormalizePreviewRichText(string text, bool preserveLineBreaks)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return string.Empty;
+
+        text = text.Replace("\r\n", "\n").Replace("\r", "\n");
+        text = Regex.Replace(text, @"<\s*/?\s*br\s*/?\s*>", preserveLineBreaks ? "\n" : " ", RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, preserveLineBreaks ? "[\t\f\v]+" : @"\s+", " ");
+
+        if (preserveLineBreaks)
+        {
+            text = Regex.Replace(text, "\n{3,}", "\n\n");
+            text = Regex.Replace(text, " *\n *", "\n");
+        }
+
+        return text.Trim();
+    }
+
+    private static Texture2D LoadPreviewTexture(ref Texture2D cache, string assetName)
+    {
+        if (cache != null) return cache;
+
+        string[] guids = AssetDatabase.FindAssets(assetName + " t:Texture2D");
+        if (guids == null || guids.Length == 0)
+            return null;
+
+        string path = AssetDatabase.GUIDToAssetPath(guids[0]);
+        cache = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+        return cache;
+    }
+
     private static List<PshaVRCEmoteInstaller> CollectFinalSlotWinners(VRCAvatarDescriptor descriptor)
     {
         var all = descriptor != null
@@ -2007,7 +2599,7 @@ public class PshaVRCEmoteInstallerEditor : Editor
             : Array.Empty<PshaVRCEmoteInstaller>();
 
         var list = new List<PshaVRCEmoteInstaller>(all);
-        list.RemoveAll(m => m == null || !m.gameObject.activeInHierarchy);
+        list.RemoveAll(m => m == null || !m.gameObject.activeInHierarchy || !m.enabled);
 
         list.Sort((a, b) => CompareHierarchyOrder(a.transform, b.transform));
 
@@ -2604,7 +3196,7 @@ public class PshaVRCEmoteInstallerEditor : Editor
 
         EditorGUILayout.LabelField(Tr("psha.state_settings", "State Settings"), EditorStyles.miniBoldLabel);
 
-        var descriptor = mgr != null ? mgr.GetComponentInParent<VRCAvatarDescriptor>() : null;
+        var descriptor = mgr != null ? FindParentAvatarDescriptorIncludingInactive(mgr) : null;
 
         // Disable input outside the avatar hierarchy
         if (descriptor == null)
